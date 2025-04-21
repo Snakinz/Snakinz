@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CGSSDS Universe Inventory Manager</title>
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: radial-gradient(circle at top left, #0f172a, #1e293b);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 550px;
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(14px);
+      border-radius: 20px;
+      padding: 30px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    }
+    h1 {
+      text-align: center;
+      color: #e0f2fe;
+      font-weight: bold;
+      margin-bottom: 20px;
+      font-size: 24px;
+    }
+    .scanner-wrapper {
+      position: relative;
+      width: 100%;
+      height: 200px;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .scanner-wrapper video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .laser-line {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: red;
+      box-shadow: 0 0 10px red;
+      animation: scan 2s infinite linear;
+      opacity: 0.8;
+    }
+    @keyframes scan {
+      0% { top: 0; }
+      100% { top: 100%; }
+    }
+    .or {
+      text-align: center;
+      font-size: 13px;
+      color: #cbd5e1;
+      margin: 10px 0;
+    }
+    input[type="file"], input, button {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      font-size: 16px;
+      border-radius: 10px;
+      border: none;
+      box-sizing: border-box;
+    }
+    input {
+      background: #f1f5f9;
+      color: #1e293b;
+    }
+    button {
+      background: #3b82f6;
+      color: white;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    button:hover {
+      background: #2563eb;
+    }
+    .danger {
+      background: #ef4444;
+    }
+    .danger:hover {
+      background: #b91c1c;
+    }
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .table-container {
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 20px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid #334155;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px;
+      border: 1px solid #475569;
+      text-align: center;
+      font-size: 14px;
+      background-color: rgba(255, 255, 255, 0.07);
+    }
+    th {
+      background-color: #1e293b;
+      color: #e0f2fe;
+      text-transform: uppercase;
+      font-size: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>CGSSDS Exchange Purchased Entry</h1>
+    <div class="scanner-wrapper">
+      <video id="preview" autoplay muted playsinline></video>
+      <div class="laser-line"></div>
+    </div>
+    <p class="or">or</p>
+    <input type="file" accept="image/*" onchange="scanImageBarcode(event)" />
+    <input type="text" id="barcode" placeholder="Barcode" readonly />
+    <input type="text" id="product" placeholder="Product Name" />
+    <input type="number" id="quantity" placeholder="Quantity" />
+    <input type="number" id="originalPrice" placeholder="Original Price" step="0.01" />
+    <input type="number" id="sellingPrice" placeholder="Selling Price" step="0.01" />
+    <div class="btn-group">
+      <button onclick="addEntry()">Add/Update Entry</button>
+      <button onclick="downloadCSV()">Download CSV</button>
+      <button class="danger" onclick="clearAll()">Clear All</button>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Barcode</th>
+            <th>Product</th>
+            <th>Qty</th>
+            <th>OP</th>
+            <th>SP</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="purchaseTable"></tbody>
+      </table>
+    </div>
+  </div>
+  <audio id="beep" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg" preload="auto"></audio>
+  <script>
+    const STORAGE_KEY = 'cgssds_universe_items';
+    const table = document.getElementById('purchaseTable');
+    const barcodeInput = document.getElementById('barcode');
+    const beep = document.getElementById('beep');
+    let editIndex = -1;
+
+    window.onload = () => {
+      loadData();
+      autoStartCamera();
+    };
+
+    function loadData() {
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      table.innerHTML = '';
+      data.forEach((item, index) => insertRow(item, index));
+    }
+
+    function insertRow(item, index) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${item.barcode}</td>
+        <td>${item.product}</td>
+        <td>${item.quantity}</td>
+        <td>${item.op.toFixed(2)}</td>
+        <td>${item.sp.toFixed(2)}</td>
+        <td>
+          <button style="padding: 6px 12px; font-size: 14px; border-radius: 8px; background-color: #facc15; color: #000; border: none; margin-right: 5px;" onclick="editEntry(${index})">Edit</button>
+          <button style="padding: 6px 12px; font-size: 14px; border-radius: 8px; background-color: #ef4444; color: #fff; border: none;" onclick="deleteEntry(${index})">Delete</button>
+        </td>
+      `;
+      table.appendChild(tr);
+    }
+
+    function addEntry() {
+      const barcode = barcodeInput.value.trim();
+      const product = document.getElementById("product").value.trim();
+      const quantity = parseInt(document.getElementById("quantity").value);
+      const op = parseFloat(document.getElementById("originalPrice").value);
+      const sp = parseFloat(document.getElementById("sellingPrice").value);
+
+      if (!barcode || !product || isNaN(quantity) || isNaN(op) || isNaN(sp)) {
+        alert("Please complete all fields.");
+        return;
+      }
+
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+
+      if (editIndex >= 0) {
+        data[editIndex] = { barcode, product, quantity, op, sp };
+        editIndex = -1;
+      } else {
+        const exists = data.some(item => item.barcode === barcode);
+        if (exists) {
+          alert("Barcode already exists.");
+          return;
+        }
+        data.push({ barcode, product, quantity, op, sp });
+      }
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      barcodeInput.value = "";
+      document.getElementById("product").value = "";
+      document.getElementById("quantity").value = "";
+      document.getElementById("originalPrice").value = "";
+      document.getElementById("sellingPrice").value = "";
+      loadData();
+    }
+
+    function editEntry(index) {
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      const item = data[index];
+      barcodeInput.value = item.barcode;
+      document.getElementById("product").value = item.product;
+      document.getElementById("quantity").value = item.quantity;
+      document.getElementById("originalPrice").value = item.op;
+      document.getElementById("sellingPrice").value = item.sp;
+      editIndex = index;
+    }
+
+    function deleteEntry(index) {
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      if (confirm("Are you sure you want to delete this entry?")) {
+        data.splice(index, 1);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        loadData();
+      }
+    }
+
+    function downloadCSV() {
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      let csv = "Barcode,Product,Qty,Original Price,Selling Price\n";
+      data.forEach(item => {
+        csv += `${item.barcode},${item.product},${item.quantity},${item.op.toFixed(2)},${item.sp.toFixed(2)}\n`;
+      });
+      const blob = new Blob([csv], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "CGSSDS_Inventory.csv";
+      link.click();
+    }
+
+    function clearAll() {
+      if (confirm("Clear all entries?")) {
+        localStorage.removeItem(STORAGE_KEY);
+        loadData();
+      }
+    }
+
+    function autoStartCamera() {
+      const videoElement = document.getElementById("preview");
+      const codeReader = new ZXing.BrowserMultiFormatReader();
+      codeReader.listVideoInputDevices().then(devices => {
+        if (devices.length > 0) {
+          codeReader.decodeFromVideoDevice(devices[0].deviceId, videoElement, (result, err) => {
+            if (result) {
+              barcodeInput.value = result.getText();
+              beep.play();
+            }
+          });
+        }
+      }).catch(err => console.error("Camera error:", err));
+    }
+
+    function scanImageBarcode(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.src = reader.result;
+        img.onload = () => {
+          const codeReader = new ZXing.BrowserMultiFormatReader();
+          codeReader.decodeFromImageElement(img).then(result => {
+            barcodeInput.value = result.getText();
+            beep.play();
+            alert("Barcode detected: " + result.getText());
+          }).catch(() => {
+            alert("Failed to detect barcode. Try a clearer image.");
+          });
+        };
+      };
+      reader.readAsDataURL(file);
+    }
+  </script>
+</body>
+</html>
