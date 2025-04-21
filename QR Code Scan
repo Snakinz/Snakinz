@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Live QR Code Scanner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
+  <style>
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: 'Segoe UI', sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+
+    #reader {
+      width: 100%;
+      max-width: 340px;
+      margin: auto;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    #result {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #1e293b;
+      border-radius: 10px;
+      font-size: 18px;
+      display: none;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      background-color: #38bdf8;
+      color: #0f172a;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #0ea5e9;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>📷 Live QR Code Scanner</h2>
+  <button onclick="startScan()">Start Scanning</button>
+  <div id="reader" style="display:none;"></div>
+  <div id="result"></div>
+
+  <!-- Beep Sound -->
+  <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+
+  <script>
+    let scanner;
+    const resultDiv = document.getElementById("result");
+    const beep = document.getElementById("beep");
+
+    function startScan() {
+      document.querySelector("button").style.display = "none";
+      document.getElementById("reader").style.display = "block";
+
+      scanner = new Html5Qrcode("reader");
+
+      Html5Qrcode.getCameras().then(devices => {
+        if (devices.length) {
+          const cam = devices.find(c => c.label.toLowerCase().includes("back")) || devices[0];
+
+          scanner.start(
+            { deviceId: { exact: cam.id } },
+            { fps: 10, qrbox: 250 },
+            (decodedText) => {
+              beep.play();
+              resultDiv.style.display = "block";
+              resultDiv.textContent = `✅ QR Code Detected: ${decodedText}`;
+              scanner.stop();
+            },
+            (errorMessage) => {
+              // Silent scan fail
+            }
+          );
+        } else {
+          resultDiv.style.display = "block";
+          resultDiv.textContent = "🚫 No camera found.";
+        }
+      }).catch(err => {
+        resultDiv.style.display = "block";
+        resultDiv.textContent = "🚫 Camera error: " + err;
+      });
+    }
+  </script>
+
+</body>
+</html>
